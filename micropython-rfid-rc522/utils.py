@@ -1,7 +1,7 @@
 import binascii
 
 
-def get_block_number(sector_num: int, relative_block_num: int) -> int:
+def get_block_number(sector_num: int, relative_block_num: int):
     """
     Returns the block number starting from the relative block number and the sector number.
     :param sector_num: sector number (from 0 to SECTORS_NUMBER - 1)
@@ -11,7 +11,7 @@ def get_block_number(sector_num: int, relative_block_num: int) -> int:
     return sector_num * 4 + relative_block_num
 
 
-def get_block_repr(block_number: int) -> str:
+def get_block_repr(block_number: int):
     """
     Returns block representation of a given block address, e.g.
     S01B03 for sector trailer in second sector.
@@ -20,7 +20,7 @@ def get_block_repr(block_number: int) -> str:
     return f"S{(block_number - (block_number % 4)) // 4}B{block_number % 4}"
 
 
-def bytes_to_hex(bytes_to_convert: bytes, separator="") -> str:
+def bytes_to_hex(bytes_to_convert: bytes, separator=""):
     """
     Converts bytes to hex string
     :param bytes_to_convert: bytes to convert

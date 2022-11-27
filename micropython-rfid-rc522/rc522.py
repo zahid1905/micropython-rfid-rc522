@@ -1,6 +1,5 @@
-import time
-import busio
-import digitalio
+from time import sleep_ms
+from machine import Pin, SoftSPI
 
 
 class RC522:
@@ -122,24 +121,16 @@ class RC522:
         self.debug = debug
 
         # rst and cs pins
-        self.rst = digitalio.DigitalInOut(rst_pin)
-        self.rst.direction = digitalio.Direction.OUTPUT
-        self.rst.value = False
+        self.rst = Pin(rst_pin, Pin.OUT)
+        self.rst.value(0)
 
-        self.cs = digitalio.DigitalInOut(cs_pin)
-        self.cs.direction = digitalio.Direction.OUTPUT
-        self.cs.value = True
+        self.cs = Pin(cs_pin, Pin.OUT)
+        self.cs.value(1)
 
         # SPI connection
-        self.spi = busio.SPI(clock=sck_pin, MOSI=mosi_pin, MISO=miso_pin)
-        
-        locked = False
-        while not locked:
-            locked = self.spi.try_lock()
-        self.spi.configure(baudrate=baudrate)
-        self.spi.unlock()
+        self.spi = SoftSPI(baudrate=baudrate, polarity=0, phase=0, firstbit=SoftSPI.MSB, sck=sck_pin, mosi=mosi_pin, miso=miso_pin)
 
-        self.rst.value = True
+        self.rst.value(1)
         self.__init()
 
     def __init(self):
@@ -148,7 +139,7 @@ class RC522:
         It performs a soft reset, resets the timer and enables the antenna.
         """
         # High output on the reset pin
-        self.rst.value = True
+        self.rst.value(1)
         # Soft reset
         self.__soft_reset()
         # Timer: TPrescaler*TreloadVal/6.78MHz = 24ms, f(Timer) = 6.78MHz/TPreScale
@@ -179,16 +170,14 @@ class RC522:
         :param value: value to be written
         """
         # Lock the SPI
-        locked = False
-        while not locked:
-            locked = self.spi.try_lock()
+        self.spi.init()
 
         # Write and unlock
-        self.cs.value = False
+        self.cs.value(0)
         self.spi.write(b'%c' % int(0xff & ((register << 1) & 0x7e)))
         self.spi.write(b'%c' % int(0xff & value))
-        self.cs.value = True
-        self.spi.unlock()
+        self.cs.value(1)
+        self.spi.deinit()
 
     def __dev_read(self, register):
         """
@@ -197,17 +186,15 @@ class RC522:
         :return: read value
         """
         # lock the SPI
-        locked = False
-        while not locked:
-            locked = self.spi.try_lock()
+        self.spi.init()
 
         # Read and unlock
-        self.cs.value = False
+        self.cs.value(0)
         self.spi.write(b'%c' % int(0xff & (((register << 1) & 0x7e) | 0x80)))
         read_buffer = bytearray(1)
         self.spi.readinto(read_buffer)
-        self.cs.value = True
-        self.spi.unlock()
+        self.cs.value(1)
+        self.spi.deinit()
 
         return read_buffer[0]
 
@@ -250,7 +237,7 @@ class RC522:
         """
         self.__clear_bitmask(self.REG_STATUS_2, 0x08)
 
-    def __send_cmd(self, command, command_data) -> (int, list[int] | None, int):
+    def __send_cmd(self, command, command_data):
         """
         Sends a command to a tag.
         :param command: command to the MFRC522 chip, needed to send a command to the tag
@@ -296,7 +283,7 @@ class RC522:
             timeout_ms -= 1
             if ~((timeout_ms != 0) and ~(n & 0x01) and ~(n & wait_irq)):
                 stop = True
-            time.sleep(0.001)  # wait 1 ms
+            sleep_ms(1)  # wait 1 ms
 
         self.__clear_bitmask(self.REG_BIT_FRAMING, 0x80)            # StartSend=0
 
@@ -328,7 +315,7 @@ class RC522:
 
         return status, back_data, bits_len
 
-    def __calculate_crc(self, data) -> list[int]:
+    def __calculate_crc(self, data):
         """
         Calculates the CRC value for some data that should be sent to a tag.
         :param data: data to calculate the CRC for
@@ -350,13 +337,13 @@ class RC522:
             timeout_ms -= 1
             if not ((timeout_ms != 0) and not (n & 0x04)):  # CRCIrq = 1
                 stop = True
-            time.sleep(0.001)  # wait 1 ms
+            sleep_ms(1)  # wait 1 ms
 
         # Read the result from the CRC calculation
         result = [self.__dev_read(self.REG_CRC_RESULT_L), self.__dev_read(self.REG_CRC_RESULT_M)]
         return result
 
-    def request_tag(self, req_mode=0x26) -> (int, list[int] | None):
+    def request_tag(self, req_mode=0x26):
         """
         Checks (once) to see if there is a tag in the vicinity.
         :param req_mode: mode of the request
@@ -381,7 +368,7 @@ class RC522:
 
         return status, tag_type
 
-    def wait_for_tag(self) -> (int, list[int] | None):
+    def wait_for_tag(self):
         """
         Performs tag requests until a new one is discovered.
         :return status: 0 = OK, 1 = NO_TAG_ERROR, 2 = ERROR
@@ -403,7 +390,7 @@ class RC522:
 
         return status, tag_type
 
-    def anti_collision(self) -> (int, list[int] | None):
+    def anti_collision(self):
         """
         Performs the collision detection to avoid collisions that might occur if there are multiple tags available.
         :return status: status of the collision detection (0 = OK, 1 = NO_TAG_ERROR, 2 = ERROR)
@@ -434,7 +421,7 @@ class RC522:
 
         return status, uid_data
 
-    def select_tag(self, uid_data) -> int:
+    def select_tag(self, uid_data):
         """
         Selects a given tag.
         :param uid_data: UID of the tag (4 bytes) concatenated with checksum (1 byte), 5 bytes total
@@ -460,7 +447,7 @@ class RC522:
 
         return status
 
-    def auth(self, auth_method, block_number, key, uid) -> int:
+    def auth(self, auth_method, block_number, key, uid):
         """
         Performs the authentication for a given block.
         :param auth_method: 0x60 (AUTH_A) or 0x61 (AUTH_B)
@@ -491,7 +478,7 @@ class RC522:
 
         return status
 
-    def read_block(self, block_number) -> (int, list[int] | None):
+    def read_block(self, block_number):
         """
         Reads a desired block.
         Note: it does not manage authentication.
@@ -514,7 +501,7 @@ class RC522:
 
         return status, read_data
 
-    def write_block(self, block_number, data) -> int:
+    def write_block(self, block_number, data):
         """
         Writes data to a desired block.
         Note: it does not manage authentication.
